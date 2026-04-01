@@ -40,8 +40,9 @@ type request struct {
 	status Status
 
 	// Unstructured output. Only one of these is non-nil.
-	outPayload []byte
-	fdData     *readResultFd
+	outPayload  []byte
+	fdData      *readResultFd
+	multiFdData *readResultMultiFd
 
 	// In case of read, keep read result here so we can call
 	// Done() on it.

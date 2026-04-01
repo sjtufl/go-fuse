@@ -71,6 +71,10 @@ func (ms *protocolServer) handleRequest(h *operationHandler, req *request) {
 		req.outPayload, req.status = req.fdData.Bytes(req.outPayload)
 		req.fdData = nil
 	}
+	if req.multiFdData != nil && ms.opts.DisableSplice {
+		req.outPayload, req.status = req.multiFdData.Bytes(req.outPayload)
+		req.multiFdData = nil
+	}
 
 	req.serializeHeader(req.outPayloadSize())
 

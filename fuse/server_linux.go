@@ -32,6 +32,20 @@ func (ms *Server) write(req *request) Status {
 		req.serializeHeader(len(req.outPayload))
 	}
 
+	if req.multiFdData != nil {
+		if ms.canSplice {
+			err := ms.trySpliceMulti(req, req.multiFdData)
+			if err == nil {
+				req.readResult.Done()
+				return OK
+			}
+			ms.opts.Logger.Println("trySpliceMulti:", err)
+		}
+
+		req.outPayload, req.status = req.multiFdData.Bytes(req.outPayload)
+		req.serializeHeader(len(req.outPayload))
+	}
+
 	_, err := writev(ms.mountFd, [][]byte{req.outputBuf, req.outPayload})
 	if req.readResult != nil {
 		req.readResult.Done()

@@ -94,3 +94,70 @@ func (ms *Server) trySplice(req *request, fdData *readResultFd) error {
 	}
 	return nil
 }
+
+// trySpliceMulti is like trySplice but splices data from multiple
+// fd+offset+size segments into /dev/fuse in a single reply.
+//
+// The approach is the same four-step dance:
+//  1. Splice each segment from its fd into pair1 (sequentially)
+//  2. Write the FUSE reply header into pair2
+//  3. Splice pair1 → pair2
+//  4. Splice pair2 → /dev/fuse
+func (ms *Server) trySpliceMulti(req *request, mfd *readResultMultiFd) error {
+	pair1, err := splice.Get()
+	if err != nil {
+		return err
+	}
+	defer splice.Done(pair1)
+
+	pair1Sz := mfd.totalSz + os.Getpagesize()
+	if err := pair1.Grow(pair1Sz); err != nil {
+		return err
+	}
+
+	// Step 1: splice each segment into pair1
+	payloadLen := 0
+	for _, seg := range mfd.Segments {
+		n, err := pair1.LoadFromAt(seg.Fd, seg.Sz, seg.Off)
+		if err != nil {
+			return err
+		}
+		payloadLen += n
+	}
+
+	// Steps 2-4: same as trySplice
+	pair2, err := splice.Get()
+	if err != nil {
+		return err
+	}
+	defer splice.Done(pair2)
+
+	req.serializeHeader(payloadLen)
+	total := len(req.outputBuf) + payloadLen
+	pair2Sz := total + os.Getpagesize()
+	if err := pair2.Grow(pair2Sz); err != nil {
+		return err
+	}
+
+	n, err := pair2.Write(req.outputBuf)
+	if err != nil {
+		return err
+	}
+	if n != len(req.outputBuf) {
+		return fmt.Errorf("Short write into splice: wrote %d, want %d", n, len(req.outputBuf))
+	}
+
+	n, err = pair2.LoadFrom(pair1.ReadFd(), payloadLen)
+	if err != nil {
+		return err
+	}
+	if n != payloadLen {
+		return fmt.Errorf("Short splice: wrote %d, want %d", n, payloadLen)
+	}
+
+	_, err = pair2.WriteTo(uintptr(ms.mountFd), total)
+	if err != nil {
+		return err
+	}
+	return nil
+}

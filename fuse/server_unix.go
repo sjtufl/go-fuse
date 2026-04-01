@@ -25,6 +25,11 @@ func (ms *Server) write(req *request) Status {
 		req.serializeHeader(len(req.outPayload))
 	}
 
+	if req.multiFdData != nil {
+		req.outPayload, req.status = req.multiFdData.Bytes(req.outPayload)
+		req.serializeHeader(len(req.outPayload))
+	}
+
 	_, err := writev(int(ms.mountFd), [][]byte{req.outputBuf, req.outPayload})
 	if req.readResult != nil {
 		req.readResult.Done()
